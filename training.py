@@ -1,4 +1,5 @@
 from datasets import load_dataset
+from torchmetrics.detection._mean_ap import MeanAveragePrecision
 from torchvision.ops import RoIPool
 from transformers import DetrImageProcessor, DetrForObjectDetection, PreTrainedModel, Trainer, TrainingArguments, \
     BatchFeature, AutoImageProcessor, DetrConfig
@@ -11,9 +12,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from functools import partial
 from torch import nn
+from transformers.image_transforms import center_to_corners_format
 
 
-# %%
 class PreTrainingBackbone(PreTrainedModel):
     def __init__(self, config, backbone):
         super().__init__(config)
@@ -41,6 +42,101 @@ class PreTrainingBackbone(PreTrainedModel):
         loss = self.loss(logits, labels)
 
         return {"loss": loss}
+
+
+def convert_bbox_yolo_to_pascal(boxes, image_size):
+    """
+    Convert bounding boxes from YOLO format (x_center, y_center, width, height) in range [0, 1]
+    to Pascal VOC format (x_min, y_min, x_max, y_max) in absolute coordinates.
+
+    Args:
+        boxes (torch.Tensor): Bounding boxes in YOLO format
+        image_size (Tuple[int, int]): Image size in format (height, width)
+
+    Returns:
+        torch.Tensor: Bounding boxes in Pascal VOC format (x_min, y_min, x_max, y_max)
+    """
+    # convert center to corners format
+    boxes = center_to_corners_format(boxes)
+
+    # convert to absolute coordinates
+    height, width = image_size
+    boxes = boxes * torch.tensor([[width, height, width, height]])
+
+    return boxes
+
+
+@torch.no_grad()
+def compute_metrics(
+        evaluation_results,
+        image_processor,
+        threshold=0.0,
+        id2label=None,
+):
+    """
+    Compute mean average mAP, mAR and their variants for the object detection task.
+
+    Args:
+        evaluation_results (EvalPrediction): Predictions and targets from evaluation.
+        threshold (float, optional): Threshold to filter predicted boxes by confidence. Defaults to 0.0.
+        id2label (Optional[dict], optional): Mapping from class id to class name. Defaults to None.
+
+    Returns:
+        Mapping[str, float]: Metrics in a form of dictionary {<metric_name>: <metric_value>}
+    """
+
+    predictions, targets = evaluation_results.predictions, evaluation_results.label_ids
+
+    # For metric computation we need to provide:
+    #  - targets in a form of list of dictionaries with keys "boxes", "labels"
+    #  - predictions in a form of list of dictionaries with keys "boxes", "scores", "labels"
+
+    image_sizes = []
+    post_processed_targets = []
+    post_processed_predictions = []
+
+    # Collect targets in the required format for metric computation
+    for batch in targets:
+        # collect image sizes, we will need them for predictions post processing
+        batch_image_sizes = torch.tensor(np.array([x["orig_size"] for x in batch]))
+        image_sizes.append(batch_image_sizes)
+        # collect targets in the required format for metric computation
+        # boxes were converted to YOLO format needed for model training
+        # here we will convert them to Pascal VOC format (x_min, y_min, x_max, y_max)
+        for image_target in batch:
+            boxes = torch.tensor(image_target["boxes"])
+            boxes = convert_bbox_yolo_to_pascal(boxes, image_target["orig_size"])
+            labels = torch.tensor(image_target["class_labels"])
+            post_processed_targets.append({"boxes": boxes, "labels": labels})
+
+    # Collect predictions in the required format for metric computation,
+    # model produce boxes in YOLO format, then image_processor convert them to Pascal VOC format
+    for batch, target_sizes in zip(predictions, image_sizes):
+        batch_boxes, batch_scores, batch_labels = batch[1], batch[2], batch[3]
+        for boxe, score, label in zip(batch_boxes, batch_scores, batch_labels):
+            post_processed_predictions.append({
+                "scores": torch.tensor(score),
+                "labels": torch.tensor(label),
+                "boxes": torch.tensor(boxe)
+            })
+
+    # Compute metrics
+    metric = MeanAveragePrecision(box_format="xyxy", class_metrics=True, max_detection_thresholds=[1, 100, 300])
+    metric.update(post_processed_predictions, post_processed_targets)
+    metrics = metric.compute()
+
+    # Replace list of per class metrics with separate metric for each class
+    classes = metrics.pop("classes")
+    map_per_class = metrics.pop("map_per_class")
+    mar_300_per_class = metrics.pop("mar_300_per_class")
+    for class_id, class_map, class_mar in zip(classes, map_per_class, mar_300_per_class):
+        class_name = id2label[class_id.item()] if id2label is not None else class_id.item()
+        metrics[f"map_{class_name}"] = class_map
+        metrics[f"mar_300_{class_name}"] = class_mar
+
+    metrics = {k: round(v.item(), 4) for k, v in metrics.items()}
+
+    return metrics
 
 
 def collate_fn(batch):
@@ -145,7 +241,7 @@ def augment_and_transform_batch(examples, transform, image_processor, return_pix
 
 
 def main():
-    config = DetrConfig()
+    config = DetrConfig(num_labels=80)
     processor = DetrImageProcessor()
     detr_model = DetrForObjectDetection(config).cuda()
 
@@ -179,7 +275,7 @@ def main():
     dataset['val'] = dataset['val'].with_transform(validation_transform_batch)
 
     training_args = TrainingArguments(remove_unused_columns=False, report_to='wandb', auto_find_batch_size=True,
-                                      do_eval=True)
+                                      do_eval=True, num_train_epochs=1)
 
     trainer = Trainer(
         args=training_args,
@@ -193,10 +289,10 @@ def main():
     trainer.evaluate()
 
     train_transform_batch = partial(
-        augment_and_transform_batch, transform=train_augment_and_transform, image_processor=processor, bg_train=True
+        augment_and_transform_batch, transform=train_augment_and_transform, image_processor=processor, bg_train=False
     )
     validation_transform_batch = partial(
-        augment_and_transform_batch, transform=validation_transform, image_processor=processor, bg_train=True
+        augment_and_transform_batch, transform=validation_transform, image_processor=processor, bg_train=False
     )
 
     dataset = load_dataset("detection-datasets/coco")
@@ -204,8 +300,15 @@ def main():
     dataset['train'] = dataset['train'].with_transform(train_transform_batch)
     dataset['val'] = dataset['val'].with_transform(validation_transform_batch)
 
+    categories = dataset["train"].features["objects"].feature["category"].names
+    id2label = dict(enumerate(categories))
+    label2id = {v: k for k, v in id2label.items()}
+
     training_args = TrainingArguments(remove_unused_columns=False, report_to='wandb', num_train_epochs=50,
                                       auto_find_batch_size=True, do_eval=True)
+    eval_compute_metrics_fn = partial(
+        compute_metrics, image_processor=processor, id2label=id2label, threshold=0.0
+    )
 
     detr_model.model.backbone = pretrained_backbone.backbone
     trainer = Trainer(
@@ -214,7 +317,8 @@ def main():
         train_dataset=dataset['train'],
         eval_dataset=dataset['val'],
         processing_class=processor,
-        data_collator=collate_fn
+        data_collator=collate_fn,
+        compute_metrics=eval_compute_metrics_fn
     )
     trainer.train()
     trainer.evaluate()
