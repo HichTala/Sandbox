@@ -137,7 +137,7 @@ def compute_metrics(
     map_per_class = metrics.pop("map_per_class")
     mar_100_per_class = metrics.pop("mar_100_per_class")
     for class_id, class_map, class_mar in zip(classes, map_per_class, mar_100_per_class):
-        class_name = id2label[class_id.item()] if id2label is not None else class_id.item()
+        class_name = id2label[class_id.item()-1] if id2label is not None else class_id.item()
         metrics[f"map_{class_name}"] = class_map
         metrics[f"mar_100_{class_name}"] = class_mar
 
