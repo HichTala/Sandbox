@@ -28,10 +28,8 @@ import logging
 import os
 import sys
 from dataclasses import dataclass, field
-from functools import partial
-from typing import Optional, Mapping, Any
+from typing import Optional
 
-import albumentations as A
 import evaluate
 import numpy as np
 import torch
@@ -58,13 +56,11 @@ from transformers import (
     TimmWrapperImageProcessor,
     Trainer,
     TrainingArguments,
-    set_seed, AutoModelForObjectDetection, BatchFeature,
+    set_seed,
 )
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 
-from evaluate_local import get_area, get_background_bboxes
-from pre_training_backbone import PreTrainingBackboneForImageClassification
 
 """ Fine-tuning a 🤗 Transformers model for image classification"""
 
@@ -83,83 +79,6 @@ def pil_loader(path: str):
     with open(path, "rb") as f:
         im = Image.open(f)
         return im.convert("RGB")
-
-
-def format_image_annotations_as_coco(
-        image_id: str, categories: list[int], areas: list[float], bboxes: list[tuple[float]], sizes: tuple[int, int]
-) -> dict:
-    """Format one set of image annotations to the COCO format
-
-    Args:
-        sizes: (tuple[int, int]): image size (width, height)
-        image_id (str): image id. e.g. "0001"
-        categories (list[int]): list of categories/class labels corresponding to provided bounding boxes
-        areas (list[float]): list of corresponding areas to provided bounding boxes
-        bboxes (list[tuple[float]]): list of bounding boxes provided in COCO format
-            ([center_x, center_y, width, height] in absolute coordinates)
-
-    Returns:
-        dict: {
-            "image_id": image id,
-            "annotations": list of formatted annotations
-        }
-    """
-    annotations = []
-    for category, area, bbox in zip(categories, areas, bboxes):
-        formatted_annotation = {
-            "image_id": image_id,
-            "category_id": category + 1,
-            "iscrowd": 0,
-            "area": area,
-            "bbox": list(bbox),
-        }
-        annotations.append(formatted_annotation)
-
-    background_bboxe = [0, 0, 0, 0]
-    get_background_bboxes(background_bboxe, [0, 0, sizes[0], sizes[1]], bboxes)
-    annotations.append({
-        "image_id": image_id,
-        "category_id": 0,  # Assuming 0 is the category ID for background
-        "iscrowd": 0,
-        "area": get_area(background_bboxe),
-        "bbox": background_bboxe,
-    })
-    return {
-        "image_id": image_id,
-        "annotations": annotations,
-    }
-
-
-def augment_and_transform_batch(
-        examples: Mapping[str, Any],
-        transform: A.Compose,
-        image_processor: AutoImageProcessor,
-        return_pixel_mask: bool = False,
-) -> BatchFeature:
-    """Apply augmentations and format annotations in COCO format for object detection task"""
-
-    images = []
-    annotations = []
-    for image_id, image, objects in zip(examples["image_id"], examples["image"], examples["objects"]):
-        image = np.array(image.convert("RGB"))
-
-        # apply augmentations
-        output = transform(image=image, bboxes=objects["bbox"], category=objects["category"])
-        images.append(output["image"])
-
-        # format annotations in COCO format
-        formatted_annotations = format_image_annotations_as_coco(
-            image_id, output["category"], objects["area"], output["bboxes"], image.shape[:2]
-        )
-        annotations.append(formatted_annotations)
-
-    # Apply the image processor transformations: resizing, rescaling, normalization
-    result = image_processor(images=images, annotations=annotations, return_tensors="pt")
-
-    if not return_pixel_mask:
-        result.pop("pixel_mask", None)
-
-    return result
 
 
 @dataclass
@@ -209,10 +128,6 @@ class DataTrainingArguments:
     label_column_name: str = field(
         default="label",
         metadata={"help": "The name of the dataset column containing the labels. Defaults to 'label'."},
-    )
-    image_square_size: Optional[int] = field(
-        default=600,
-        metadata={"help": "Image longest size will be resized to this value, then image will be padded to square."},
     )
 
     def __post_init__(self):
@@ -349,9 +264,8 @@ def main():
 
     def collate_fn(examples):
         pixel_values = torch.stack([example["pixel_values"] for example in examples])
-        labels = [example["labels"] for example in examples]
-        class_labels = torch.cat([label["class_labels"] for label in labels])
-        return {"pixel_values": pixel_values, "labels": labels, "class_labels": class_labels}
+        labels = torch.tensor([example[data_args.label_column_name] for example in examples])
+        return {"pixel_values": pixel_values, "labels": labels}
 
     # If we don't have a validation split, split off a percentage of train as validation.
     data_args.train_val_split = None if "validation" in dataset else data_args.train_val_split
@@ -362,9 +276,7 @@ def main():
 
     # Prepare label mappings.
     # We'll include these in the model's config to get human readable labels in the Inference API.
-    # TODO change the hard coded name "category" to be changeable via DataTrainingArguments
-    labels = ['background'] + dataset["train"].features[data_args.label_column_name]['category'].feature.names
-    # labels = dataset["train"].features[data_args.label_column_name].names
+    labels = dataset["train"].features[data_args.label_column_name].names
     label2id, id2label = {}, {}
     for i, label in enumerate(labels):
         label2id[label] = str(i)
@@ -384,16 +296,22 @@ def main():
         num_labels=len(labels),
         label2id=label2id,
         id2label=id2label,
+        finetuning_task="image-classification",
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         token=model_args.token,
         trust_remote_code=model_args.trust_remote_code,
     )
-    object_detection_model = AutoModelForObjectDetection.from_config(
+    model = AutoModelForImageClassification.from_pretrained(
+        model_args.model_name_or_path,
+        from_tf=bool(".ckpt" in model_args.model_name_or_path),
         config=config,
-        trust_remote_code=model_args.trust_remote_code
+        cache_dir=model_args.cache_dir,
+        revision=model_args.model_revision,
+        token=model_args.token,
+        trust_remote_code=model_args.trust_remote_code,
+        ignore_mismatched_sizes=model_args.ignore_mismatched_sizes,
     )
-    model = PreTrainingBackboneForImageClassification(config, object_detection_model)
     image_processor = AutoImageProcessor.from_pretrained(
         model_args.image_processor_name or model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
@@ -417,42 +335,36 @@ def main():
             normalize = Normalize(mean=image_processor.image_mean, std=image_processor.image_std)
         else:
             normalize = Lambda(lambda x: x)
-        max_size = data_args.image_square_size
-        train_augment_and_transform = A.Compose(
+        _train_transforms = Compose(
             [
-                A.Compose(
-                    [
-                        A.SmallestMaxSize(max_size=max_size, p=1.0),
-                        A.RandomSizedBBoxSafeCrop(height=max_size, width=max_size, p=1.0),
-                    ],
-                    p=0.2,
-                ),
-                A.OneOf(
-                    [
-                        A.Blur(blur_limit=7, p=0.5),
-                        A.MotionBlur(blur_limit=7, p=0.5),
-                        A.Defocus(radius=(1, 5), alias_blur=(0.1, 0.25), p=0.1),
-                    ],
-                    p=0.1,
-                ),
-                A.Perspective(p=0.1),
-                A.HorizontalFlip(p=0.5),
-                A.RandomBrightnessContrast(p=0.5),
-                A.HueSaturationValue(p=0.1),
-            ],
-            bbox_params=A.BboxParams(format="coco", label_fields=["category"], clip=True, min_area=25),
+                RandomResizedCrop(size),
+                RandomHorizontalFlip(),
+                ToTensor(),
+                normalize,
+            ]
         )
-        validation_transform = A.Compose(
-            [A.NoOp()],
-            bbox_params=A.BboxParams(format="coco", label_fields=["category"], clip=True),
+        _val_transforms = Compose(
+            [
+                Resize(size),
+                CenterCrop(size),
+                ToTensor(),
+                normalize,
+            ]
         )
 
-    train_transform_batch = partial(
-        augment_and_transform_batch, transform=train_augment_and_transform, image_processor=image_processor
-    )
-    validation_transform_batch = partial(
-        augment_and_transform_batch, transform=validation_transform, image_processor=image_processor
-    )
+    def train_transforms(example_batch):
+        """Apply _train_transforms across a batch."""
+        example_batch["pixel_values"] = [
+            _train_transforms(pil_img.convert("RGB")) for pil_img in example_batch[data_args.image_column_name]
+        ]
+        return example_batch
+
+    def val_transforms(example_batch):
+        """Apply _val_transforms across a batch."""
+        example_batch["pixel_values"] = [
+            _val_transforms(pil_img.convert("RGB")) for pil_img in example_batch[data_args.image_column_name]
+        ]
+        return example_batch
 
     if training_args.do_train:
         if "train" not in dataset:
@@ -462,7 +374,7 @@ def main():
                 dataset["train"].shuffle(seed=training_args.seed).select(range(data_args.max_train_samples))
             )
         # Set the training transforms
-        dataset["train"] = dataset["train"].with_transform(train_transform_batch)
+        dataset["train"].set_transform(train_transforms)
 
     if training_args.do_eval:
         if "validation" not in dataset:
@@ -472,7 +384,7 @@ def main():
                 dataset["validation"].shuffle(seed=training_args.seed).select(range(data_args.max_eval_samples))
             )
         # Set the validation transforms
-        dataset["validation"] = dataset["validation"].with_transform(validation_transform_batch).select(range(16))
+        dataset["validation"].set_transform(val_transforms)
 
     # Initialize our trainer
     trainer = Trainer(

@@ -5,10 +5,10 @@ from transformers import PreTrainedModel
 from transformers.modeling_outputs import ImageClassifierOutput
 
 
-class PreTrainingBackbone(PreTrainedModel):
-    def __init__(self, config, backbone):
+class PreTrainingBackboneForImageClassification(PreTrainedModel):
+    def __init__(self, config, model):
         super().__init__(config)
-        self.backbone = backbone.model.backbone
+        self.backbone = model.model.backbone
 
         self.ffn = nn.Linear(256, 81)
 
@@ -32,6 +32,5 @@ class PreTrainingBackbone(PreTrainedModel):
 
         return ImageClassifierOutput(
             loss=loss,
-            logits=logits,
-            hidden_states=box_features
+            logits=logits
         )
