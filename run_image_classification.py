@@ -37,6 +37,7 @@ import numpy as np
 import torch
 from datasets import load_dataset
 from PIL import Image
+from matplotlib import pyplot as plt, patches
 from torchvision.transforms import (
     CenterCrop,
     Compose,
@@ -111,7 +112,7 @@ def format_image_annotations_as_coco(
             "category_id": category + 1,
             "iscrowd": 0,
             "area": area,
-            "bbox": list(bbox),
+            "bbox": [bbox[0], bbox[1], bbox[2] - bbox[0],  bbox[3] - bbox[1]],
         }
         annotations.append(formatted_annotation)
 
@@ -138,13 +139,47 @@ def augment_and_transform_batch(
 ) -> BatchFeature:
     """Apply augmentations and format annotations in COCO format for object detection task"""
 
+    images = examples['image'] #['pixel_values'].permute(0, 2, 3, 1).cpu().numpy()
+    # orig_sizes = [torch.cat([label['size'], label['size']]).cpu().numpy() for label in result["labels"]]
+    bboxes = [objects['bbox'] for objects in examples['objects']] #[label['boxes'].cpu().numpy() * orig_size for label, orig_size in zip(result["labels"], orig_sizes)]
+    class_labels = [objects['category'] for objects in examples['objects']] #[label['boxes'].cpu().numpy() * orig_size for label, orig_size in zip(result["labels"], orig_sizes)]
+
+
+    def plot(i):
+        fig, ax = plt.subplots(1, figsize=(8, 8))
+        ax.imshow(images[i])
+
+        for bbox, label in zip(bboxes[i], class_labels[i]):
+            x1, y1, x2, y2 = bbox
+            w, h = x2 - x1, y2 - y1
+            rect = patches.Rectangle((x1, y1), w, h, linewidth=2,
+                                     edgecolor="red", facecolor="none")
+            ax.add_patch(rect)
+            ax.text(x1, y1, label, color="white", fontsize=10,
+                    bbox=dict(facecolor="red", alpha=0.5))
+        plt.show()
+
     images = []
     annotations = []
+
     for image_id, image, objects in zip(examples["image_id"], examples["image"], examples["objects"]):
         image = np.array(image.convert("RGB"))
 
         # apply augmentations
-        output = transform(image=image, bboxes=objects["bbox"], category=objects["category"])
+        if image_id == 200365:
+            objects["bbox"].pop(2)
+            objects["category"].pop(2)
+            objects["bbox_id"].pop(2)
+            objects["area"].pop(2)
+        if image_id == 550395:
+            objects["bbox"].pop()
+            objects["category"].pop()
+            objects["bbox_id"].pop()
+            objects["area"].pop()
+        try:
+            output = transform(image=image, bboxes=objects["bbox"], category=objects["category"])
+        except ValueError:
+            pass
         images.append(output["image"])
 
         # format annotations in COCO format
@@ -153,11 +188,54 @@ def augment_and_transform_batch(
         )
         annotations.append(formatted_annotations)
 
+    # images = examples['image']  # ['pixel_values'].permute(0, 2, 3, 1).cpu().numpy()
+    # # orig_sizes = [torch.cat([label['size'], label['size']]).cpu().numpy() for label in result["labels"]]
+    bboxes = [[ann['bbox'] for ann in annotation['annotations']] for annotation in annotations]
+    # [label['boxes'].cpu().numpy() * orig_size for label, orig_size in zip(result["labels"], orig_sizes)]
+    # # class_labels = [label['class_labels'].cpu().numpy() for label in result["labels"]]
+    class_labels = [[ann['category_id'] for ann in annotation['annotations']] for annotation in annotations]
+
+    def plot(i):
+        fig, ax = plt.subplots(1, figsize=(8, 8))
+        ax.imshow(images[i])
+
+        for bbox, label in zip(bboxes[i], class_labels[i]):
+            # x1, y1, x2, y2 = bbox
+            x1, y1, w, h = bbox
+            # w, h = x2 - x1, y2 - y1
+            rect = patches.Rectangle((x1, y1), w, h, linewidth=2,
+                                     edgecolor="red", facecolor="none")
+            ax.add_patch(rect)
+            ax.text(x1, y1, label, color="white", fontsize=10,
+                    bbox=dict(facecolor="red", alpha=0.5))
+        plt.show()
+
     # Apply the image processor transformations: resizing, rescaling, normalization
     result = image_processor(images=images, annotations=annotations, return_tensors="pt")
 
     if not return_pixel_mask:
         result.pop("pixel_mask", None)
+
+    images = result['pixel_values'].permute(0, 2, 3, 1).cpu().numpy()
+    orig_sizes = [torch.cat([label['size'], label['size']]).cpu().numpy() for label in result['labels']]
+    bboxes = [label['boxes'].cpu().numpy() * orig_size for label, orig_size in zip(result['labels'], orig_sizes)]
+    class_labels = [label['class_labels'].cpu().numpy() for label in result['labels']]
+
+    def plot(i):
+        fig, ax = plt.subplots(1, figsize=(8, 8))
+        ax.imshow(images[i])
+
+        for bbox, label in zip(bboxes[i], class_labels[i]):
+            cx, cy, w, h = bbox
+            x1 = cx - w / 2
+            y1 = cy - h / 2
+            # w, h = x2 - x1, y2 - y1
+            rect = patches.Rectangle((x1, y1), w, h, linewidth=2,
+                                     edgecolor="red", facecolor="none")
+            ax.add_patch(rect)
+            ax.text(x1, y1, label, color="white", fontsize=10,
+                    bbox=dict(facecolor="red", alpha=0.5))
+        plt.show()
 
     return result
 
@@ -440,11 +518,12 @@ def main():
                 A.RandomBrightnessContrast(p=0.5),
                 A.HueSaturationValue(p=0.1),
             ],
-            bbox_params=A.BboxParams(format="coco", label_fields=["category"], clip=True, min_area=25),
+            # TODO put the hard coded format into data argument
+            bbox_params=A.BboxParams(format="pascal_voc", label_fields=["category"], clip=True, min_area=25),
         )
         validation_transform = A.Compose(
             [A.NoOp()],
-            bbox_params=A.BboxParams(format="coco", label_fields=["category"], clip=True),
+            bbox_params=A.BboxParams(format="pascal_voc", label_fields=["category"], clip=True),
         )
 
     train_transform_batch = partial(
@@ -472,7 +551,7 @@ def main():
                 dataset["validation"].shuffle(seed=training_args.seed).select(range(data_args.max_eval_samples))
             )
         # Set the validation transforms
-        dataset["validation"] = dataset["validation"].with_transform(validation_transform_batch).select(range(16))
+        dataset["validation"] = dataset["validation"].with_transform(validation_transform_batch)
 
     # Initialize our trainer
     trainer = Trainer(

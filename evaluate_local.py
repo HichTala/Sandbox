@@ -158,7 +158,7 @@ def get_area(bbox):
 
 def get_background_bboxes(background_bbox, handled_bbox, bboxes):
     if len(bboxes) != 0:
-        bbox = bboxes[0]
+        bbox = bboxes[0].copy()
         divided_bboxes = divide_bboxes(handled_bbox, bbox)
         for divided_bbox in divided_bboxes:
             if get_area(divided_bbox) > get_area(background_bbox):
