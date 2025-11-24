@@ -116,15 +116,15 @@ def format_image_annotations_as_coco(
         }
         annotations.append(formatted_annotation)
 
-    background_bboxe = [0, 0, 0, 0]
-    get_background_bboxes(background_bboxe, [0, 0, sizes[0], sizes[1]], bboxes)
-    annotations.append({
-        "image_id": image_id,
-        "category_id": 0,  # Assuming 0 is the category ID for background
-        "iscrowd": 0,
-        "area": get_area(background_bboxe),
-        "bbox": background_bboxe,
-    })
+    # background_bboxe = [0, 0, 0, 0]
+    # get_background_bboxes(background_bboxe, [0, 0, sizes[0], sizes[1]], bboxes)
+    # annotations.append({
+    #     "image_id": image_id,
+    #     "category_id": 0,  # Assuming 0 is the category ID for background
+    #     "iscrowd": 0,
+    #     "area": get_area(background_bboxe),
+    #     "bbox": background_bboxe,
+    # })
     return {
         "image_id": image_id,
         "annotations": annotations,
@@ -158,6 +158,11 @@ def augment_and_transform_batch(
             ax.text(x1, y1, label, color="white", fontsize=10,
                     bbox=dict(facecolor="red", alpha=0.5))
         plt.show()
+
+    # plot(0)
+    # plot(1)
+    # plot(2)
+    # plot(3)
 
     images = []
     annotations = []
@@ -211,6 +216,10 @@ def augment_and_transform_batch(
         plt.show()
 
     # Apply the image processor transformations: resizing, rescaling, normalization
+    # plot(0)
+    # plot(1)
+    # plot(2)
+    # plot(3)
     result = image_processor(images=images, annotations=annotations, return_tensors="pt")
 
     if not return_pixel_mask:
@@ -237,6 +246,10 @@ def augment_and_transform_batch(
                     bbox=dict(facecolor="red", alpha=0.5))
         plt.show()
 
+    # plot(0)
+    # plot(1)
+    # plot(2)
+    # plot(3)
     return result
 
 
@@ -457,6 +470,12 @@ def main():
         """Computes accuracy on a batch of predictions"""
         return metric.compute(predictions=np.argmax(p.predictions, axis=1), references=p.label_ids)
 
+    common_pretrained_args = {
+        "cache_dir": model_args.cache_dir,
+        "revision": model_args.model_revision,
+        "token": model_args.token,
+        "trust_remote_code": model_args.trust_remote_code,
+    }
     config = AutoConfig.from_pretrained(
         model_args.config_name or model_args.model_name_or_path,
         num_labels=len(labels),
@@ -467,6 +486,12 @@ def main():
         token=model_args.token,
         trust_remote_code=model_args.trust_remote_code,
     )
+    # object_detection_model = AutoModelForObjectDetection.from_pretrained(
+    #     model_args.model_name_or_path,
+    #     config=config,
+    #     ignore_mismatched_sizes=True,
+    #     **common_pretrained_args,
+    # )
     object_detection_model = AutoModelForObjectDetection.from_config(
         config=config,
         trust_remote_code=model_args.trust_remote_code
