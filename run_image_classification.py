@@ -307,17 +307,18 @@ def main():
         revision=model_args.model_revision,
         token=model_args.token,
         trust_remote_code=model_args.trust_remote_code,
+        use_pretrained_backbone=True
     )
-    object_detection_model = AutoModelForObjectDetection.from_pretrained(
-        model_args.model_name_or_path,
-        config=config,
-        ignore_mismatched_sizes=True,
-        **common_pretrained_args,
-    )
-    # object_detection_model = AutoModelForObjectDetection.from_config(
+    # object_detection_model = AutoModelForObjectDetection.from_pretrained(
+    #     model_args.model_name_or_path,
     #     config=config,
-    #     trust_remote_code=model_args.trust_remote_code
+    #     ignore_mismatched_sizes=True,
+    #     **common_pretrained_args,
     # )
+    object_detection_model = AutoModelForObjectDetection.from_config(
+        config=config,
+        trust_remote_code=model_args.trust_remote_code
+    )
     # model = ResNetForImageClassification.from_pretrained("microsoft/resnet-50")
     # im_model = AutoModelForImageClassification.from_config(config)
     model = PreTrainingBackboneForImageClassification(config, object_detection_model)

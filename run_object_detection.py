@@ -54,6 +54,7 @@ from transformers.trainer import EvalPrediction
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 
+from pre_training_backbone import PreTrainingBackboneForImageClassification
 
 logger = logging.getLogger(__name__)
 
@@ -417,6 +418,8 @@ def main():
         ignore_mismatched_sizes=model_args.ignore_mismatched_sizes,
         **common_pretrained_args,
     )
+    # pretrain_backbone = PreTrainingBackboneForImageClassification.from_pretrained("checkpoints/detr-resnet50-15epochs", config=config, model=model)
+    # model.model.backbone.conv_encoder.model = pretrain_backbone.backbone
     image_processor = AutoImageProcessor.from_pretrained(
         model_args.image_processor_name or model_args.model_name_or_path,
         do_resize=True,
@@ -469,8 +472,8 @@ def main():
     )
 
     dataset["train"] = dataset["train"].with_transform(train_transform_batch)
-    dataset["validation"] = dataset["validation"].with_transform(validation_transform_batch)
-    dataset["test"] = dataset["test"].with_transform(validation_transform_batch)
+    dataset["validation"] = dataset["train"].with_transform(validation_transform_batch)
+    dataset["test"] = dataset["train"].with_transform(validation_transform_batch)
 
     # ------------------------------------------------------------------------------------------------
     # Model training and evaluation with Trainer API
