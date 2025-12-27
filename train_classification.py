@@ -8,6 +8,8 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import torchvision
+from torchvision.models import ResNet50_Weights
+
 import wandb
 from datasets import load_dataset
 from torchvision import datasets, models, transforms
@@ -120,7 +122,7 @@ def transforms_fn(example_batch, split):
 
 
 if __name__ == '__main__':
-    model = models.resnet50(pretrained=True)
+    model = models.resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
     num_ftrs = model.fc.in_features
     model.fc = nn.Linear(num_ftrs, 81)
     input_size = 224
