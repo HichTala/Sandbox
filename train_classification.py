@@ -92,6 +92,7 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, is_ince
             if phase == 'validation' and epoch_acc > best_acc:
                 best_acc = epoch_acc
                 best_model_wts = copy.deepcopy(model.state_dict())
+                torch.save(best_model_wts, os.path.join("runs", f'resnet50_epoch_{epoch}.pth'))
             if phase == 'validation':
                 val_acc_history.append(epoch_acc)
 
@@ -103,7 +104,7 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, is_ince
 
     # load best model weights
     model.load_state_dict(best_model_wts)
-    model.save('best_model.pth')
+    torch.save(best_model_wts, os.path.join("runs", 'best_model.pth'))
     return model, val_acc_history
 
 
