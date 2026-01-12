@@ -18,6 +18,10 @@ import time
 import os
 import copy
 
+from ultralytics import YOLO
+
+from pre_training_backbone import PreTrainingBackboneForImageClassification
+
 print("PyTorch Version: ", torch.__version__)
 print("Torchvision Version: ", torchvision.__version__)
 
@@ -92,7 +96,7 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, is_ince
             if phase == 'validation' and epoch_acc > best_acc:
                 best_acc = epoch_acc
                 best_model_wts = copy.deepcopy(model.state_dict())
-                torch.save(best_model_wts, os.path.join("runs", f'resnet50_epoch_{epoch}.pth'))
+                torch.save(best_model_wts, os.path.join("runs", f'yolo_layer4_epoch_{epoch}.pth'))
             if phase == 'validation':
                 val_acc_history.append(epoch_acc)
 
@@ -123,9 +127,15 @@ def transforms_fn(example_batch, split):
 
 
 if __name__ == '__main__':
-    model = models.resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
+    # model = models.resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
+    # num_ftrs = model.fc.in_features
+    # model.fc = nn.Linear(num_ftrs, 81)
+
+    yolo = YOLO('yolo11n.yaml')
+    model = PreTrainingBackboneForImageClassification(model=yolo)
     num_ftrs = model.fc.in_features
     model.fc = nn.Linear(num_ftrs, 81)
+
     input_size = 224
 
     # Send the model to GPU
