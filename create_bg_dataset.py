@@ -40,8 +40,8 @@ def get_background_bboxes(background_bbox, handled_bbox, bboxes):
             background_bbox[:] = handled_bbox
 
 if __name__ == '__main__':
-    split = "val"
-    dataset = load_dataset("detection-datasets/coco")
+    split = "test"
+    dataset = load_dataset("HichTala/dior")
 
     labels = ['background'] + dataset[split].features["objects"]['category'].feature.names
     label2id, id2label = {}, {}
@@ -56,34 +56,26 @@ if __name__ == '__main__':
         bbox_ids = sample["objects"]["bbox_id"]
         labels = sample["objects"]["category"]
 
-        if image_id == 200365:
-            bboxes.pop(2)
-            labels.pop(2)
-            bbox_ids.pop(2)
-        if image_id == 550395:
-            bboxes.pop()
-            labels.pop()
-            bbox_ids.pop()
-        if image_id == 158292:
-            bboxes.pop(-2)
-            labels.pop(-2)
-            bbox_ids.pop(-2)
-        if image_id == 171360:
-            bboxes.pop(-11)
-            labels.pop(-11)
-            bbox_ids.pop(-11)
-        if image_id == 183338:
-            bboxes.pop(-1)
-            labels.pop(-1)
-            bbox_ids.pop(-1)
-        if image_id == 340038:
-            bboxes.pop(-2)
-            labels.pop(-2)
-            bbox_ids.pop(-2)
+        do_break = False
+        for bbox, bbox_id, label in zip(bboxes, bbox_ids, labels):
+            if os.path.exists(f"dataset/{split}/{id2label[str(label + 1)]}/{image_id}_{bbox_id}.png"):
+                do_break = True
+                break
+        if do_break:
+            do_break = False
+            continue
+
+        new_format = []
+        for bbox in bboxes:
+            x1, y1, w, h = bbox
+            x2, y2 = w + x1, h + y1
+            new_format.append((x1, y1, x2, y2))
+        bboxes = new_format
 
         global background_bbox
         background_bbox = [0, 0, 0, 0]
-        get_background_bboxes(background_bbox, [0, 0, image.size[0], image.size[1]], bboxes)
+        if len(bboxes) <=250:
+            get_background_bboxes(background_bbox, [0, 0, image.size[0], image.size[1]], bboxes)
         w_min, h_min = image.size
 
         for bbox, bbox_id, label in zip(bboxes, bbox_ids, labels):
