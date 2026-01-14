@@ -123,9 +123,15 @@ def transforms_fn(example_batch, split):
 
 
 if __name__ == '__main__':
-    model = models.resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
-    num_ftrs = model.fc.in_features
-    model.fc = nn.Linear(num_ftrs, 81)
+    # model = models.resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
+    # num_ftrs = model.fc.in_features
+    # model.fc = nn.Linear(num_ftrs, 81)
+
+    model = models.swin_b(weights=models.Swin_B_Weights.IMAGENET1K_V1)
+    num_ftrs = model.head.in_features
+    model.head = nn.Linear(num_ftrs, 81)
+
+
     input_size = 224
 
     # Send the model to GPU
@@ -167,7 +173,7 @@ if __name__ == '__main__':
     dataset["validation"].set_transform(partial(transforms_fn, split="validation"))
 
     dataloaders = {
-        split_name: torch.utils.data.DataLoader(dataset[split_name], batch_size=64, shuffle=True, num_workers=4,
+        split_name: torch.utils.data.DataLoader(dataset[split_name], batch_size=256, shuffle=True, num_workers=4,
                                                 collate_fn=collate_fn)
         for split_name in ['train', 'validation']
     }
@@ -176,4 +182,4 @@ if __name__ == '__main__':
 
     wandb.init(project="training-with-background")
 
-    train_model(model, dataloaders, criterion, optimizer, num_epochs=25)
+    train_model(model, dataloaders, criterion, optimizer, num_epochs=150)
