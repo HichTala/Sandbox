@@ -47,7 +47,8 @@ def get_background_bboxes(background_bbox, handled_bbox, bboxes):
 
 def main(dataset, split, shot, seed):
     dataset = load_fs_dataset(f"HichTala/{dataset}")
-    dataset[split].sampling(shots=shot, seed=seed)
+    if split == "train":
+        dataset[split].sampling(shots=shot, seed=seed)
 
     labels = ['background'] + dataset[split].features["objects"]['category'].feature.names
     label2id, id2label = {}, {}
@@ -80,7 +81,7 @@ def main(dataset, split, shot, seed):
 
         global background_bbox
         background_bbox = [0, 0, 0, 0]
-        if len(bboxes) <= 250:
+        if len(bboxes) <= 150:
             get_background_bboxes(background_bbox, [0, 0, image.size[0], image.size[1]], bboxes)
         w_min, h_min = image.size
 
@@ -107,10 +108,10 @@ def main(dataset, split, shot, seed):
 
 
 if __name__ == '__main__':
-    splits = ["train"]
+    splits = ["train", "validation", "test"]
     shots = [1, 5, 10]
-    seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-    datasets = ["dota", "dior", "xview", "oktoberfest", "fashionpedia", "cadot", "artaxor", "deepfruits", "uodd"]
+    seeds = [0] #, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    datasets = ["oktoberfest", "fashionpedia", "cadot", "artaxor", "deepfruits", "uodd", "xview"] # "dior", "dota", ]
 
     for dataset_name in datasets:
         for shot in shots:
