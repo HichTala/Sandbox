@@ -95,7 +95,7 @@ def main(dataset, split, shot, seed):
                 image.crop((x1, y1, x2, y2)).save(
                     f"dataset/{split}/{id2label[str(label + 1)]}/{image_id}_{bbox_id}.png")
             except SystemError:
-                breakpoint()
+                pass
 
         x1, y1, x2, y2 = background_bbox
         os.makedirs(f"dataset/{split}/{id2label['0']}", exist_ok=True)
@@ -109,9 +109,9 @@ def main(dataset, split, shot, seed):
 
 if __name__ == '__main__':
     splits = ["train", "validation", "test"]
-    shots = [1, 5, 10]
-    seeds = [0] #, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-    datasets = ["oktoberfest", "fashionpedia", "cadot", "artaxor", "deepfruits", "uodd", "xview"] # "dior", "dota", ]
+    shots = [5, 10]#1, ]
+    seeds = [1] #, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    datasets = ["uodd", "deepfruits", "cadot", "fashionpedia", "xview"] # "dior", "dota","oktoberfest", "artaxor", ]
 
     for dataset_name in datasets:
         for shot in shots:
