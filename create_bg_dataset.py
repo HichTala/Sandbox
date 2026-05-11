@@ -40,7 +40,7 @@ def get_background_bboxes(background_bbox, handled_bbox, bboxes):
             background_bbox[:] = handled_bbox
 
 if __name__ == '__main__':
-    split = "test"
+    split = "train"
     dataset = load_dataset("HichTala/dior")
 
     labels = ['background'] + dataset[split].features["objects"]['category'].feature.names
