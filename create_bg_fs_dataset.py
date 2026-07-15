@@ -1,6 +1,7 @@
 import os
 
 from datasets import load_dataset
+from fsdetection import load_fs_dataset
 from tqdm import tqdm
 
 
@@ -8,6 +9,7 @@ def bbox_intersect(bbox1, bbox2):
     x1, y1, x2, y2 = bbox1
     x3, y3, x4, y4 = bbox2
     return x2 > x3 and x4 > x1 and y2 > y3 and y4 > y1
+
 
 def divide_bboxes(bbox1, bbox2):
     x1, y1, x2, y2 = bbox1
@@ -21,12 +23,14 @@ def divide_bboxes(bbox1, bbox2):
     if y3 > y1:
         divided_boxes.append([x1, y1, x2, y3])  # Top part
     if y4 < y2:
-        divided_boxes.append([x1, y4, x2, y2])  #Bottom part
+        divided_boxes.append([x1, y4, x2, y2])  # Bottom part
     return divided_boxes
+
 
 def area(bbox):
     x1, y1, x2, y2 = bbox
     return (x2 - x1) * (y2 - y1)
+
 
 def get_background_bboxes(background_bbox, handled_bbox, bboxes):
     if len(bboxes) != 0:
@@ -34,14 +38,17 @@ def get_background_bboxes(background_bbox, handled_bbox, bboxes):
         divided_bboxes = divide_bboxes(handled_bbox, bbox)
         for divided_bbox in divided_bboxes:
             if area(divided_bbox) > area(background_bbox):
-                get_background_bboxes(background_bbox, divided_bbox, [bb for bb in bboxes if bbox_intersect(divided_bbox, bb)])
+                get_background_bboxes(background_bbox, divided_bbox,
+                                      [bb for bb in bboxes if bbox_intersect(divided_bbox, bb)])
     else:
         if area(handled_bbox) > area(background_bbox):
             background_bbox[:] = handled_bbox
 
-if __name__ == '__main__':
-    split = "train"
-    dataset = load_dataset("HichTala/dior")
+
+def main(dataset, split, shot, seed):
+    dataset = load_fs_dataset(f"HichTala/{dataset}")
+    if split == "train":
+        dataset[split].sampling(shots=shot, seed=seed)
 
     labels = ['background'] + dataset[split].features["objects"]['category'].feature.names
     label2id, id2label = {}, {}
@@ -74,7 +81,7 @@ if __name__ == '__main__':
 
         global background_bbox
         background_bbox = [0, 0, 0, 0]
-        if len(bboxes) <=250:
+        if len(bboxes) <= 150:
             get_background_bboxes(background_bbox, [0, 0, image.size[0], image.size[1]], bboxes)
         w_min, h_min = image.size
 
@@ -85,9 +92,10 @@ if __name__ == '__main__':
             h_min = min(h_min, h)
             os.makedirs(f"dataset/{split}/{id2label[str(label + 1)]}", exist_ok=True)
             try:
-                image.crop((x1, y1, x2, y2)).save(f"dataset/{split}/{id2label[str(label + 1)]}/{image_id}_{bbox_id}.png")
+                image.crop((x1, y1, x2, y2)).save(
+                    f"dataset/{split}/{id2label[str(label + 1)]}/{image_id}_{bbox_id}.png")
             except SystemError:
-                breakpoint()
+                pass
 
         x1, y1, x2, y2 = background_bbox
         os.makedirs(f"dataset/{split}/{id2label['0']}", exist_ok=True)
@@ -97,3 +105,19 @@ if __name__ == '__main__':
                 image.crop((x1, y1, x2, y2)).save(f"dataset/{split}/{id2label['0']}/{image_id}_background.png")
             except SystemError:
                 breakpoint()
+
+
+if __name__ == '__main__':
+    splits = ["train", "validation", "test"]
+    shots = [5, 10]#1, ]
+    seeds = [1] #, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    datasets = ["uodd", "deepfruits", "cadot", "fashionpedia", "xview"] # "dior", "dota","oktoberfest", "artaxor", ]
+
+    for dataset_name in datasets:
+        for shot in shots:
+            for seed in seeds:
+                for split in splits:
+                    main(dataset_name, split, shot, seed)
+                dataset = load_dataset("imagefolder", data_dir="dataset", drop_labels=False)
+                dataset.push_to_hub(f"HichTala/{dataset_name}_{shot}shot_{seed}")
+                os.system("rm -rf dataset")
