@@ -127,7 +127,7 @@ if __name__ == '__main__':
     # num_ftrs = model.fc.in_features
     # model.fc = nn.Linear(num_ftrs, 81)
 
-    model = models.swin_b(weights=models.Swin_T_Weights.IMAGENET1K_V1)
+    model = models.swin_t(weights=models.Swin_T_Weights.IMAGENET1K_V1)
     num_ftrs = model.head.in_features
     model.head = nn.Linear(num_ftrs, 81)
 
