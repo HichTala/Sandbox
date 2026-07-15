@@ -92,7 +92,7 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, is_ince
             if phase == 'validation' and epoch_acc > best_acc:
                 best_acc = epoch_acc
                 best_model_wts = copy.deepcopy(model.state_dict())
-                torch.save(best_model_wts, os.path.join("runs", f'resnet50_epoch_{epoch}.pth'))
+                torch.save(best_model_wts, os.path.join("runs/swin", f'swinb_epoch_{epoch}.pth'))
             if phase == 'validation':
                 val_acc_history.append(epoch_acc)
 
@@ -104,7 +104,7 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, is_ince
 
     # load best model weights
     model.load_state_dict(best_model_wts)
-    torch.save(best_model_wts, os.path.join("runs", 'best_model.pth'))
+    torch.save(best_model_wts, os.path.join("runs/swin", 'best_model.pth'))
     return model, val_acc_history
 
 
@@ -168,12 +168,12 @@ if __name__ == '__main__':
 
     print("Initializing Datasets and Dataloaders...")
 
-    dataset = load_dataset("HichTala/coco-background")
+    dataset = load_dataset("/lustre/fsn1/projects/rech/mvq/ubc18yy/datasets/coco-background")
     dataset["train"].set_transform(partial(transforms_fn, split="train"))
     dataset["validation"].set_transform(partial(transforms_fn, split="validation"))
 
     dataloaders = {
-        split_name: torch.utils.data.DataLoader(dataset[split_name], batch_size=256, shuffle=True, num_workers=4,
+        split_name: torch.utils.data.DataLoader(dataset[split_name], batch_size=128, shuffle=True, num_workers=4,
                                                 collate_fn=collate_fn)
         for split_name in ['train', 'validation']
     }
